@@ -104,18 +104,21 @@ Each Orca turn `itemId` becomes a Run; its explicit `userItemId`, when present a
 
 ## Waste signals
 
-Planned deterministic signals:
+Implemented deterministic signals:
 
-- never-used installed skills
-- skills unused for a configurable period
-- repeated skill invocation in one run
-- repeated identical or near-identical tool calls
-- failed/retried tool calls
-- unusually long runs
-- repeated review -> fix cycles
-- interrupted or abandoned runs
+- installed skills with no matching stored invocation (the refreshed inventory snapshot can be stale)
+- skills whose last stored invocation is at least N days before the newest timestamp in stored run/tool/skill evidence
+- repeated skill calls in a run
+- repeated tool calls in a run with the same tool name and stored input hash
+- explicitly failed tool calls
+- runs at least a configurable multiple of the median duration among three or more earlier completed runs for the same task
+- runs with an explicit `interrupted` outcome
 
-Recommendations should be evidence-based. Low-frequency specialist skills should not be automatically marked for deletion.
+Configure `orcalens waste` with `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER` (defaults: 90, 2, and 2). A long-run finding needs a numeric start time and at least three completed prior runs for the same task. Each baseline run must end before the candidate starts. The analyzer calculates the median from those runs.
+
+Inactivity compares call timestamps with the newest numeric timestamp in stored runs, tool calls, or skill calls. It does not use wall-clock time. If any matching skill call has a missing or nonnumeric start timestamp, the analyzer omits that finding. Findings cite the records that establish the signal. A repeated hash does not prove redundant work. An interrupted outcome does not establish why work stopped.
+
+The current schema does not distinguish tool retries, near-identical inputs, abandonment, cycles between review and fixes, or token usage. These signals are not reported. Runs without sufficient same-task history do not receive long-run findings. Waste analysis reads stored inventory and normalized evidence without refreshing the filesystem inventory. Refresh inventory with `orcalens skills` when needed. Low usage is never a deletion recommendation.
 
 ## Technology
 
@@ -127,4 +130,4 @@ The application is CLI-first. A dashboard is out of scope.
 
 ## Status
 
-The current implementation contains the CLI, migration-managed SQLite schema, and a read-only Orca journal collector. Normalizers and analyzers remain empty.
+The current implementation contains the CLI, migration-managed SQLite schema, a read-only Orca journal collector, normalized skill invocation detection, and deterministic evidence-based waste analyzers.
