@@ -1,4 +1,6 @@
-use crate::reporting::{self, CommandData, CommandOutput, ReportResult, ScanResult};
+use crate::reporting::{
+    self, CommandData, CommandOutput, ReportResult, ScanResult, SkillResult, SkillsResult,
+};
 use crate::storage;
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -20,7 +22,15 @@ struct Arguments {
 pub enum Command {
     Scan,
     Runs,
-    Skills,
+    Skills {
+        #[arg(
+            long,
+            help = "Show only skills unused or inactive for the configured window"
+        )]
+        unused: bool,
+        #[arg(long, default_value_t = 90, value_name = "DAYS")]
+        inactivity_days: u64,
+    },
     Waste,
     Report,
 }
@@ -41,8 +51,32 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), Box<dyn Error
             }
         }
         Command::Runs => CommandOutput::empty_list(arguments.command),
-        Command::Skills => CommandOutput::empty_list(arguments.command),
-        Command::Waste => CommandOutput::empty_list(arguments.command),
+        Command::Skills {
+            unused,
+            inactivity_days,
+        } => {
+            let items = crate::skills::refresh(&mut connection, inactivity_days)?
+                .into_iter()
+                .filter(|skill| !unused || skill.calls == 0 || skill.inactive)
+                .map(|skill| SkillResult {
+                    name: skill.name,
+                    installed: skill.installed,
+                    providers: skill.providers,
+                    calls: skill.calls,
+                    runs: skill.runs,
+                    last_used: skill.last_used,
+                    inactive: skill.inactive,
+                })
+                .collect();
+            CommandOutput {
+                command: Command::Skills {
+                    unused,
+                    inactivity_days,
+                },
+                data: CommandData::Skills(SkillsResult { items }),
+            }
+        }
+        Command::Waste => CommandOutput::empty_list(Command::Waste),
         Command::Report => CommandOutput {
             command: arguments.command,
             data: CommandData::Report(ReportResult {
