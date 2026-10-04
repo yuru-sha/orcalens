@@ -1,6 +1,8 @@
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use std::error::Error;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 struct Migration {
@@ -43,6 +45,10 @@ pub fn open(path: impl AsRef<Path>) -> Result<Connection, Box<dyn Error>> {
         }
     }
     let connection = Connection::open(path)?;
+    #[cfg(unix)]
+    if path != Path::new(":memory:") {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    }
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     migrate(connection)
@@ -136,6 +142,31 @@ mod tests {
             assert_eq!(migrations, 1);
             assert_eq!(tables, 1);
         }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn database_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("orcalens.db");
+        open(&path).expect("open database");
+        let mode = std::fs::metadata(path)
+            .expect("database metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    #[test]
+    fn in_memory_database_opens() {
+        let connection = open(":memory:").expect("open in-memory database");
+        let migrations: i64 = connection
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("migration count");
+        assert_eq!(migrations, 1);
     }
     #[test]
     fn concurrent_first_opens_apply_migrations_once() {
