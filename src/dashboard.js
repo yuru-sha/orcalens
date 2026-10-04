@@ -9,6 +9,7 @@ let current = { view: "summary" };
 let offset = 0;
 let total = 0;
 let previousViews = [];
+let loadGeneration = 0;
 
 function node(tag, value, className) {
   const element = document.createElement(tag);
@@ -391,6 +392,7 @@ function effectiveTotal(query, data, metadata) {
 }
 
 async function load(query, pageOffset = 0) {
+  const generation = ++loadGeneration;
   current = query;
   offset = pageOffset;
   status.classList.remove("error");
@@ -400,6 +402,7 @@ async function load(query, pageOffset = 0) {
     const response = await fetch(`/api/report?${params}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Report request failed (${response.status})`);
     let snapshot = await response.json();
+    if (generation !== loadGeneration) return;
     if (query.view === "summary") {
       const related = async (view) => {
         const relatedParams = new URLSearchParams({ view, limit: "5", offset: "0" });
@@ -408,6 +411,7 @@ async function load(query, pageOffset = 0) {
         return relatedResponse.json();
       };
       const [tasks, runs] = await Promise.all([related("tasks"), related("runs")]);
+      if (generation !== loadGeneration) return;
       snapshot = {
         view: { summary: snapshot.view, tasks: tasks.view, runs: runs.view.items },
         metadata: snapshot.metadata,
@@ -417,6 +421,7 @@ async function load(query, pageOffset = 0) {
       const matrixResponse = await fetch(`/api/report?${matrixParams}`, { cache: "no-store" });
       if (!matrixResponse.ok) throw new Error(`Skill matrix request failed (${matrixResponse.status})`);
       const matrixSnapshot = await matrixResponse.json();
+      if (generation !== loadGeneration) return;
       snapshot = {
         view: { items: snapshot.view.items, matrix: matrixSnapshot.view },
         metadata: { ...snapshot.metadata, total: Math.max(snapshot.metadata.total, matrixSnapshot.metadata.total) },
@@ -426,20 +431,23 @@ async function load(query, pageOffset = 0) {
       const matrixResponse = await fetch(`/api/report?${matrixParams}`, { cache: "no-store" });
       if (!matrixResponse.ok) throw new Error(`Skill attribution request failed (${matrixResponse.status})`);
       const matrixSnapshot = await matrixResponse.json();
+      if (generation !== loadGeneration) return;
       snapshot = {
         view: { models: snapshot.view, skill_matrix: matrixSnapshot.view },
         metadata: { ...snapshot.metadata, total: Math.max(snapshot.metadata.total, matrixSnapshot.metadata.total) },
       };
     }
+    if (generation !== loadGeneration) return;
     total = effectiveTotal(query, snapshot.view, snapshot.metadata);
     render(query, snapshot.view);
     status.textContent = `${total.toLocaleString()} matching records`;
-    const hasPages = total > pageSize;
+    const hasPages = query.view !== "summary" && total > pageSize;
     pagination.hidden = !hasPages;
     previous.disabled = offset === 0;
     next.disabled = offset + pageSize >= total;
     pageLabel.textContent = `${offset + 1}–${Math.min(offset + pageSize, total)} of ${total}`;
   } catch (error) {
+    if (generation !== loadGeneration) return;
     content.replaceChildren(node("p", error.message));
     status.classList.add("error");
     status.textContent = "Could not load local report data.";
