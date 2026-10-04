@@ -27,16 +27,19 @@ pub enum Command {
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse_from(args);
-    let connection = storage::open_default()?;
+    let mut connection = storage::open_default()?;
     let output = match arguments.command {
-        Command::Scan => CommandOutput {
-            command: arguments.command,
-            data: CommandData::Scan(ScanResult {
-                sources_scanned: 0,
-                events_imported: 0,
-                collectors_available: 0,
-            }),
-        },
+        Command::Scan => {
+            let summary = crate::collectors::scan(&mut connection)?;
+            CommandOutput {
+                command: arguments.command,
+                data: CommandData::Scan(ScanResult {
+                    sources_scanned: summary.sources_scanned,
+                    events_imported: summary.events_imported,
+                    collectors_available: 1,
+                }),
+            }
+        }
         Command::Runs => CommandOutput::empty_list(arguments.command),
         Command::Skills => CommandOutput::empty_list(arguments.command),
         Command::Waste => CommandOutput::empty_list(arguments.command),

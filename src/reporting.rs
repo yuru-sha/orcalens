@@ -57,7 +57,7 @@ pub fn write(mut writer: impl Write, output: &CommandOutput, json: bool) -> io::
 fn text(output: &CommandOutput) -> String {
     match &output.data {
         CommandData::Scan(result) => format!(
-            "No collectors are configured. Scanned {} sources and imported {} events.",
+            "Scanned {} sources and imported {} events.",
             result.sources_scanned, result.events_imported
         ),
         CommandData::List(result) if result.items.is_empty() => {
