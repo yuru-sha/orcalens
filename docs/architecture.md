@@ -170,30 +170,19 @@ A changed or replaced source must be detected rather than silently continuing fr
 
 ## Analysis
 
-MVP analyzers should remain deterministic:
+`analyzers::analyze` reads normalized tables and the stored `skill_inventory` snapshot; it does not scan the filesystem, mutate source data, or persist redundant findings. Findings are typed by `FindingKind`, include normalized evidence record IDs, affected run/session/skill/tool identifiers where available, a measured metric, threshold/baseline, and a plain-language explanation. Results are sorted by kind and affected entity for reproducible output.
 
-### Skill inventory
+The supported waste signals are:
 
-- installed count
-- used count
-- never used
-- unused within N days
-- calls per run
-- last-used timestamp
+- `never_invoked_skill`: an installed skill name with no matching `skill_calls` rows. All inventory entries for the skill appear in the evidence. Inventory may be stale, and low usage is not a deletion recommendation.
+- `inactive_skill`: the latest stored call for an installed skill name is at least `--inactivity-days` before the newest numeric run, tool-call, or skill-call timestamp. The evidence includes the records that establish the calls and comparison clock.
+- `repeated_skill_call`: at least `--repeat-count` calls to the same skill in one non-null run.
+- `repeated_identical_tool_call`: at least `--repeat-count` calls with the same tool name and non-null normalized input hash in one run and session. This is exact hash equality, not proof of redundant work.
+- `failed_tool_call`: a normalized tool call explicitly marked `failed`.
+- `long_run`: a task-linked run whose numeric duration meets `--long-run-multiplier` times the median duration of at least three earlier completed runs for the same task. Only earlier runs count; the candidate is excluded. Without enough valid baseline observations, the analyzer emits no finding.
+- `interrupted_run`: a run with explicit normalized `interrupted` outcome.
 
-### Tool usage
-
-- call count
-- failure count/rate
-- repeated call patterns
-- duration where available
-
-### Run efficiency
-
-- elapsed time
-- interrupted/failed runs
-- retry count
-- review/fix loop count when lifecycle evidence supports it
+Defaults are 90 days, 2 calls, and a long-run multiplier of 2. The baseline minimum is three completed same-task runs. A completed run has numeric start and end timestamps, positive duration, and is not explicitly interrupted or unverifiable. It must end before the candidate starts. The median is calculated in milliseconds. Even-sized samples use the integer midpoint. The candidate must have a numeric start time. Findings with absent lifecycle timestamps are excluded from duration analysis. An inactive-skill finding requires numeric start timestamps for all observed calls of that skill and numeric latest stored evidence. If any matching call has a missing or nonnumeric start time, the analyzer omits the finding. Calls with missing hashes are excluded from identical-input comparison. The normalized schema cannot distinguish retries, near-identical inputs, abandonment, cycles between review and fixes, or token usage. It also lacks cross-task data for historical duration comparisons, so those signals are omitted rather than inferred.
 
 ## CLI boundaries
 
@@ -207,7 +196,7 @@ orcalens report
 
 Every command accepts `--json`. It writes one JSON object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code.
 
-The current `runs`, `skills`, and `waste` commands return an empty `items` array. `report` returns the stored run, skill inventory, and finding counts. The shared output contract gives future consumers the same result shape as the CLI.
+`waste` returns `{command:"waste",data:{items:[...]}}` in JSON. Human output shows each finding's explanation, affected entity, metric, threshold, baseline, and evidence IDs and timestamps. It prints a clear message when no findings match. `waste` accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses only stored evidence. `runs` still returns an empty `items` array. `skills` refreshes inventory and returns observed skill usage. `report` returns stored run, skill inventory, and finding counts.
 
 ## Dashboard
 
