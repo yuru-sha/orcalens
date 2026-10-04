@@ -27,6 +27,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "turn_runs",
         sql: include_str!("../migrations/0003_turn_runs.sql"),
     },
+    Migration {
+        version: 4,
+        name: "skill_usage",
+        sql: include_str!("../migrations/0004_skill_usage.sql"),
+    },
 ];
 
 pub fn default_database_path() -> Result<PathBuf, Box<dyn Error>> {
@@ -171,7 +176,7 @@ mod tests {
                     row.get(0)
                 })
                 .expect("migration count");
-            assert_eq!(migrations, 3);
+            assert_eq!(migrations, 4);
         }
         {
             let connection = open(&path).expect("reopen");
@@ -187,7 +192,7 @@ mod tests {
                     |row| row.get(0),
                 )
                 .expect("runs table");
-            assert_eq!(migrations, 3);
+            assert_eq!(migrations, 4);
             assert_eq!(tables, 1);
         }
     }
@@ -214,7 +219,7 @@ mod tests {
                 row.get(0)
             })
             .expect("migration count");
-        assert_eq!(migrations, 3);
+        assert_eq!(migrations, 4);
     }
     #[test]
     fn upgrades_existing_initial_schema_and_preserves_normalized_rows() {
@@ -374,7 +379,7 @@ mod tests {
             .collect();
 
         for handle in handles {
-            assert_eq!(handle.join().expect("open thread"), 3);
+            assert_eq!(handle.join().expect("open thread"), 4);
         }
     }
 }
