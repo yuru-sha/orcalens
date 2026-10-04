@@ -44,7 +44,7 @@ fn each_command_emits_the_shared_json_envelope() {
 }
 
 #[test]
-fn scan_imports_fixture_journal_once_through_the_cli() {
+fn scan_imports_orca_structured_tool_calls_once_through_the_cli() {
     let home = tempfile::tempdir().expect("temporary home");
     let state = home.path().join("orca");
     std::fs::create_dir_all(&state).expect("create Orca state directory");
@@ -54,12 +54,74 @@ fn scan_imports_fixture_journal_once_through_the_cli() {
         "CREATE TABLE journal_sessions (session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, epoch TEXT NOT NULL);
          CREATE TABLE journal_rows (session_id TEXT NOT NULL, epoch TEXT NOT NULL, seq INTEGER NOT NULL, ts INTEGER NOT NULL, row_json TEXT NOT NULL, PRIMARY KEY(session_id, epoch, seq));
          PRAGMA user_version = 4;
-         INSERT INTO journal_sessions VALUES ('session-a', '/tmp', 'epoch-a');
-         INSERT INTO journal_rows VALUES ('session-a', 'epoch-a', 1, 1767225600000, '{\"type\":\"message\"}');",
-    ).expect("write journal fixture");
+         INSERT INTO journal_sessions VALUES ('session-a', 'workspace-a', 'epoch-a');",
+    ).expect("create journal schema");
+    let epoch = serde_json::json!({
+        "v": 3,
+        "epoch": "epoch-a",
+        "seq": 1,
+        "fence": 0,
+        "ts": 1_767_225_601_000i64,
+        "kind": "epoch",
+        "reason": "session_created",
+        "providerHandle": {"kind": "codex", "threadId": "thread-a"}
+    });
+    source
+        .execute(
+            "INSERT INTO journal_rows VALUES ('session-a', 'epoch-a', 1, 1767225601000, ?1)",
+            [epoch.to_string()],
+        )
+        .expect("insert epoch row");
+    for (sequence, revision, state, output) in [
+        (2, 1, "running", serde_json::Value::Null),
+        (
+            3,
+            2,
+            "completed",
+            serde_json::json!({
+                "head": "ok",
+                "byteLength": 2,
+                "digest": "sha256-cli-output",
+                "truncated": false
+            }),
+        ),
+    ] {
+        let mut body = serde_json::json!({
+            "kind": "tool-call",
+            "name": "read",
+            "callId": "call-cli",
+            "state": state,
+            "input": {"path": "README.md"}
+        });
+        if !output.is_null() {
+            body["output"] = output;
+        }
+        let row = serde_json::json!({
+            "v": 3,
+            "epoch": "epoch-a",
+            "seq": sequence,
+            "fence": 0,
+            "ts": 1_767_225_600_000i64 + sequence * 1_000,
+            "kind": "item",
+            "itemId": "tool-item-cli",
+            "revision": revision,
+            "body": body,
+            "turnScope": {"kind": "turn", "turnItemId": "turn-a"}
+        });
+        source
+            .execute(
+                "INSERT INTO journal_rows VALUES ('session-a', 'epoch-a', ?1, ?2, ?3)",
+                rusqlite::params![
+                    sequence,
+                    1_767_225_600_000i64 + sequence * 1_000,
+                    row.to_string()
+                ],
+            )
+            .expect("insert tool item revision");
+    }
     drop(source);
     let database = home.path().join("orcalens.db");
-    for expected in [1, 0] {
+    for expected in [3, 0] {
         let output = Command::new(env!("CARGO_BIN_EXE_orcalens"))
             .args(["scan", "--json"])
             .env("HOME", home.path())
@@ -74,11 +136,25 @@ fn scan_imports_fixture_journal_once_through_the_cli() {
     let destination = rusqlite::Connection::open(database).expect("open analytics database");
     let (identity, payload): (String, String) = destination
         .query_row(
-            "SELECT source_identity, payload FROM raw_events",
+            "SELECT source_identity, payload FROM raw_events WHERE source_identity = 'session-a:epoch-a:1'",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .expect("read imported event");
+        .expect("read imported epoch row");
     assert_eq!(identity, "session-a:epoch-a:1");
-    assert_eq!(payload, "{\"type\":\"message\"}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&payload).unwrap()["kind"],
+        "epoch"
+    );
+    let call: (String, String, Option<String>, Option<String>) = destination
+        .query_row(
+            "SELECT tool_name, status, input_hash, output_hash FROM tool_calls WHERE call_id = 'call-cli'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("normalized tool call");
+    assert_eq!(call.0, "read");
+    assert_eq!(call.1, "succeeded");
+    assert_eq!(call.2.as_ref().map(String::len), Some(16));
+    assert_eq!(call.3.as_deref(), Some("sha256-cli-output"));
 }

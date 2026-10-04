@@ -88,7 +88,7 @@ cargo run -- runs --json
 
 The CLI provides `scan`, `runs`, `skills`, `waste`, and `report`. Each command accepts `--json` before or after the command.
 
-JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` reads discovered Orca journals and imports new rows into `raw_events`. `runs`, `skills`, and `waste` return an empty `items` array. `report` returns counts from the orcalens database.
+JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` imports new Orca journal rows into `raw_events` and normalizes recognized tool execution events into `sessions` and `tool_calls`. `runs`, `skills`, and `waste` return an empty `items` array. `report` returns counts from the orcalens database.
 
 ## Local database
 
@@ -96,11 +96,11 @@ Each command opens the orcalens-owned SQLite database and applies pending migrat
 
 The migration ledger records each applied version. Reopening the database does not apply an already recorded migration again. On Unix, the analytics database file has owner-only read and write permissions because it stores raw conversation data. `scan` reads `agent-session-journal.db` from directories in `ORCA_STATE_DIRS` or `ORCA_STATE_DIR`, then checks `$HOME/.orca` and `$HOME/.local/share/orca`. It opens each journal read-only. The checkpoint tracks each session's published epoch and sequence.
 
-Unsupported journal schema versions or missing required tables and columns stop the scan with a diagnostic. The collector preserves each row's JSON payload in `raw_events`; it does not run Orca's reducer. Provider transcripts remain uncollected.
+Unsupported journal schema versions or missing required tables and columns stop the scan with a diagnostic. The collector keeps each row's JSON payload unchanged in `raw_events`. It normalizes Orca tool-call items and ordered lifecycle-batch mutations: `running`, `completed`, and `failed` become `started`, `succeeded`, and `failed`. Input values are stored as hashes; later non-null revisions replace earlier input hashes, and output hashes reuse Orca's bounded-output digest. An interrupted turn closes earlier calls explicitly scoped to that turn in the same source, including prior epochs. Existing raw events from prior epochs are replayed once during normalization upgrades; current published rows continue to be normalized on every scan.
 
 ## Scope
 
-The collector imports Orca journal rows as raw events. It does not analyze them or populate runs, skills, or findings. The dashboard is out of scope.
+Each Orca turn `itemId` becomes a Run; its explicit `userItemId`, when present and distinct from the turn ID, links a Task, and tool-call `turnScope` links calls to that Run. Later explicit request attribution updates the Run's Task link. Task/run/session identities are source-qualified to prevent unrelated journals with reused provider IDs from merging. The join table supports multiple Sessions per Run. Workspace IDs are opaque, not paths, so scan does not assign workspace or repository links. Missing explicit Task linkage remains null; no heuristic relationship confidence is fabricated. Provider transcripts and the dashboard are out of scope.
 
 ## Waste signals
 
