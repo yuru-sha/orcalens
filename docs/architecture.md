@@ -24,13 +24,13 @@
 
 ## Current implementation
 
-The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report` through a typed command enum. `reporting` owns the shared output contract. JSON output is an object with `command` and `data` fields. The list commands return empty `items` arrays. `scan` imports new Orca journal rows into `raw_events`. `report` reads row counts from the local database.
+The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report` through a typed command enum. `reporting` owns the shared output contract. JSON output is an object with `command` and `data` fields. The list commands return empty `items` arrays. `scan` stores Orca journal rows unchanged in `raw_events`, then normalizes recognized tool execution events into `sessions` and `tool_calls`. `report` reads row counts from the local database.
 
 `storage` opens the orcalens-owned database at `$HOME/.local/share/orcalens/orcalens.db`, or at the path in `ORCALENS_DB`. It enables SQLite foreign keys and applies embedded migrations in version order. `schema_migrations` records applied versions. Each migration and its ledger entry commit in one transaction.
 
 On Unix, `storage` restricts the analytics database file to owner read and write. Raw Orca conversation data must not be readable by other local users.
 
-`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` and `analyzers` remain empty. Provider transcripts are not collected. A dashboard is out of scope.
+`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` recognizes only the explicit tool execution event shape described below. Provider transcripts are not collected. A dashboard is out of scope.
 
 ## Core entities
 
@@ -68,7 +68,7 @@ Provider session observed by Orca.
 Suggested fields:
 
 - id
-- run_id
+- run_id, nullable until run identity is supported by source evidence
 - provider
 - provider_session_id
 - started_at
@@ -77,7 +77,7 @@ Suggested fields:
 ### ToolCall
 
 - id
-- run_id
+- run_id, nullable until run identity is supported by source evidence
 - session_id
 - call_id
 - tool_name
@@ -86,6 +86,8 @@ Suggested fields:
 - status
 - input_hash
 - output_hash
+- start_event_id
+- end_event_id
 
 ### SkillCall
 
@@ -116,7 +118,9 @@ Orca stores its host-level journal in `agent-session-journal.db`. The collector 
 
 The current published database schema uses `PRAGMA user_version` 3 or 4. The collector requires `journal_sessions(session_id, epoch)` and `journal_rows(session_id, epoch, seq, ts, row_json)`. Epochs are text identifiers. Timestamps are integer milliseconds. `journal_sessions.epoch` identifies the published epoch, and rows from other epochs are ignored.
 
-The adapter opens the database read-only, validates the schema before writing destination state, and imports row JSON unchanged into `raw_events`. The checkpoint stores the last sequence for each session and epoch. A changed epoch starts a new cursor while preserving earlier raw events. Unsupported schema versions and missing required fields fail with a diagnostic.
+The adapter opens the database read-only and imports row JSON unchanged into `raw_events`. It recognizes Orca `item` rows whose body is a `tool-call`, plus ordered tool-call mutations in `lifecycle-batch` rows. The journal `itemId` is the stable normalization key; the provider `callId` is nullable and preserved when present. `running`, `completed`, and `failed` map to `started`, `succeeded`, and `failed`. Input JSON is stored only as an FNV-1a 64-bit hash; a later non-null input revision replaces an earlier hash. The output hash uses Orca's bounded-output digest, avoiding a duplicate of the output body. An `interrupted` turn closes earlier started calls explicitly scoped to that turn from the same source, including prior epochs. Calls without turn scope remain `started`; a terminal item without a prior running revision has no `started_at`. An explicit terminal tool revision supersedes an inferred interruption. Normalization upgrades replay preserved prior-epoch raw events once, before processing the currently published rows; current rows are normalized on every scan.
+
+Each Orca `turn` item creates or updates one normalized Run keyed by the source-qualified journal session and turn `itemId`. Its explicit `userItemId`, when nonempty and distinct from the turn ID, creates or updates a source-qualified Task; a later explicit attribution replaces the Run's previous Task link. Absent linkage leaves `task_id` null. A tool-call row's `turnScope.turnItemId` links the call to that Run. `run_sessions` records the explicit Run-to-provider-Session relationship and supports multiple sessions per Run. Run source-event references retain the journal rows that establish its lifecycle; tool calls retain their start/end row references and lifecycle-batch mutation order. The source's `workspace_id` is an opaque key, not a filesystem path or repository identity, so workspace and repository links stay unset rather than being guessed. The checkpoint stores the last sequence for each session and epoch, while normalization replays journal rows on later scans and upserts calls by `(source-qualified session_id, item_id)`. A changed epoch starts a new cursor while preserving earlier raw events. Unsupported schema versions and missing required fields fail with a diagnostic.
 
 ## Skill invocation detection
 
