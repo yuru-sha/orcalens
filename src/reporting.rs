@@ -182,6 +182,18 @@ pub struct RawEventResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct SourceEventReference {
+    pub id: i64,
+    pub source_type: String,
+    pub source_path: String,
+    pub source_identity: String,
+    pub source_timestamp: Option<String>,
+    pub observed_at: String,
+    pub payload_hash: String,
+    pub payload_bytes: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct InventoryResult {
     pub id: i64,
     pub name: String,
@@ -210,7 +222,7 @@ pub enum EvidenceRecord {
 #[derive(Clone, Debug, Serialize)]
 pub struct EvidenceDetail {
     pub record: EvidenceRecord,
-    pub source_events: Vec<RawEventResult>,
+    pub source_events: Vec<SourceEventReference>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -511,10 +523,10 @@ fn query_snapshot(
                 total,
             )
         }
-        ReportView::Evidence(target) => (
-            ReportData::Evidence(evidence_detail(connection, *target)?),
-            1,
-        ),
+        ReportView::Evidence(target) => {
+            let (detail, total) = evidence_detail(connection, *target, limit, offset)?;
+            (ReportData::Evidence(detail), total)
+        }
         ReportView::SourceEvent(id) => (ReportData::SourceEvent(raw_event(connection, *id)?), 1),
         ReportView::Summary => (
             ReportData::Summary(summary(
@@ -967,8 +979,10 @@ fn skill_rows(
 fn evidence_detail(
     connection: &Connection,
     target: EvidenceTarget,
-) -> Result<EvidenceDetail, Box<dyn Error>> {
-    let (record, ids) = match target {
+    limit: usize,
+    offset: usize,
+) -> Result<(EvidenceDetail, i64), Box<dyn Error>> {
+    let (record, mut ids) = match target {
         EvidenceTarget::Run(id) => {
             let run = run_row(connection, id)?;
             (EvidenceRecord::Run(run.clone()), run.evidence)
@@ -997,14 +1011,46 @@ fn evidence_detail(
             (EvidenceRecord::Inventory(entry), Vec::new())
         }
     };
+    ids.sort_unstable();
+    ids.dedup();
+    let total = ids.len() as i64;
     let source_events = ids
         .into_iter()
-        .map(|id| raw_event(connection, id))
+        .skip(offset)
+        .take(limit)
+        .map(|id| source_event_reference(connection, id))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(EvidenceDetail {
-        record,
-        source_events,
-    })
+    Ok((
+        EvidenceDetail {
+            record,
+            source_events,
+        },
+        total,
+    ))
+}
+
+fn source_event_reference(
+    connection: &Connection,
+    id: i64,
+) -> Result<SourceEventReference, Box<dyn Error>> {
+    Ok(connection.query_row(
+        "SELECT e.id, s.source_type, s.source_path, e.source_identity, e.source_timestamp,
+                e.observed_at, e.payload_hash, length(CAST(e.payload AS BLOB))
+         FROM raw_events e JOIN sources s ON s.id = e.source_id WHERE e.id = ?1",
+        [id],
+        |row| {
+            Ok(SourceEventReference {
+                id: row.get(0)?,
+                source_type: row.get(1)?,
+                source_path: row.get(2)?,
+                source_identity: row.get(3)?,
+                source_timestamp: row.get(4)?,
+                observed_at: row.get(5)?,
+                payload_hash: row.get(6)?,
+                payload_bytes: row.get(7)?,
+            })
+        },
+    )?)
 }
 
 fn raw_event(connection: &Connection, id: i64) -> Result<RawEventResult, Box<dyn Error>> {
