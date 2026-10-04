@@ -76,40 +76,33 @@ Orca journal / provider transcripts / workspace metadata
 
 See [docs/architecture.md](docs/architecture.md).
 
-## MVP
+## CLI
 
-The first useful milestone is deliberately narrow:
+Build and run the CLI with Cargo:
 
-> Compare the installed skill inventory with skills that were actually invoked.
-
-The MVP should also provide enough run/session/tool data to explain where those skill calls came from.
-
-Planned CLI:
-
-```text
-orcalens scan
-orcalens runs
-orcalens skills
-orcalens waste
-orcalens report
+```sh
+cargo run -- --help
+cargo run -- scan
+cargo run -- runs --json
 ```
 
-Example:
+The CLI provides `scan`, `runs`, `skills`, `waste`, and `report`. Each command accepts `--json` before or after the command.
 
-```text
-$ orcalens skills --unused
+JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` reports zero scanned sources and imported events because no collectors exist yet. `runs`, `skills`, and `waste` return an empty `items` array. `report` returns counts from the orcalens database.
 
-Skill                         Calls   Runs   Last used   Status
-----------------------------------------------------------------
-go/go-testing                  181     92    today       active
-openapi/review                  18     11    14d ago     low
-database/sqlite                  3      2    41d ago     dormant
-legacy-api-client                0      0    never       unused
-```
+## Local database
+
+Each command opens the orcalens-owned SQLite database and applies pending migrations before it runs. The default path is `$HOME/.local/share/orcalens/orcalens.db`. Set `ORCALENS_DB` to use another file.
+
+The migration ledger records each applied version. Reopening the database does not apply an already recorded migration again. The CLI does not open Orca databases or provider transcripts. Future collectors must treat both as read-only.
+
+## Scope
+
+The current change establishes the CLI and local storage only. It does not collect or analyze Orca data. The dashboard is out of scope.
 
 ## Waste signals
 
-Initial deterministic signals:
+Planned deterministic signals:
 
 - never-used installed skills
 - skills unused for a configurable period
@@ -128,8 +121,8 @@ Initial implementation language: **Rust**
 
 Storage: **SQLite**
 
-The first version should be CLI-first. A local web dashboard can be added after collection and normalization are reliable.
+The application is CLI-first. A dashboard is out of scope.
 
 ## Status
 
-Early design / bootstrap.
+The current implementation contains the CLI, migration-managed SQLite schema, and empty collector, normalizer, and analyzer modules.
