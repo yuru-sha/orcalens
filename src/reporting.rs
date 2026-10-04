@@ -1,3 +1,4 @@
+use crate::analyzers::Finding;
 use crate::cli::Command;
 use serde::Serialize;
 use std::io::{self, Write};
@@ -17,7 +18,7 @@ fn serialize_command<S: serde::Serializer>(
         Command::Scan => "scan",
         Command::Runs => "runs",
         Command::Skills { .. } => "skills",
-        Command::Waste => "waste",
+        Command::Waste { .. } => "waste",
         Command::Report => "report",
     };
     serializer.serialize_str(name)
@@ -28,6 +29,7 @@ fn serialize_command<S: serde::Serializer>(
 pub enum CommandData {
     Scan(ScanResult),
     Skills(SkillsResult),
+    Waste(WasteResult),
     List(ListResult),
     Report(ReportResult),
 }
@@ -60,6 +62,11 @@ pub struct SkillsResult {
 }
 
 #[derive(Serialize)]
+pub struct WasteResult {
+    pub items: Vec<Finding>,
+}
+
+#[derive(Serialize)]
 pub struct ReportResult {
     pub runs: i64,
     pub skills: i64,
@@ -87,6 +94,15 @@ pub fn write(mut writer: impl Write, output: &CommandOutput, json: bool) -> io::
 
 fn text(output: &CommandOutput) -> String {
     match &output.data {
+        CommandData::Waste(result) if result.items.is_empty() => {
+            "No waste findings match the stored evidence and configured thresholds.".to_owned()
+        }
+        CommandData::Waste(result) => result
+            .items
+            .iter()
+            .map(finding_text)
+            .collect::<Vec<_>>()
+            .join("\n"),
         CommandData::Skills(result) if result.items.is_empty() => {
             "No skill data is available.".to_owned()
         }
@@ -116,7 +132,7 @@ fn text(output: &CommandOutput) -> String {
             let label = match output.command {
                 Command::Runs => "run",
                 Command::Skills { .. } => "skill",
-                Command::Waste => "waste finding",
+                Command::Waste { .. } => "waste finding",
                 Command::Scan | Command::Report => "record",
             };
             format!("No {label} data is available.")
@@ -127,4 +143,66 @@ fn text(output: &CommandOutput) -> String {
             result.runs, result.skills, result.findings
         ),
     }
+}
+fn finding_text(finding: &Finding) -> String {
+    let affected = [
+        finding.affected.run_id.map(|id| format!("run={id}")),
+        finding
+            .affected
+            .session_id
+            .map(|id| format!("session={id}")),
+        finding
+            .affected
+            .skill
+            .as_ref()
+            .map(|skill| format!("skill={skill}")),
+        finding
+            .affected
+            .tool
+            .as_ref()
+            .map(|tool| format!("tool={tool}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(", ");
+    let evidence = finding
+        .evidence
+        .iter()
+        .map(|item| match item.observed_at.as_deref() {
+            Some(timestamp) => format!("{}#{}@{timestamp}", item.entity_type, item.id),
+            None => format!("{}#{}", item.entity_type, item.id),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let threshold = finding.threshold.as_ref().map_or_else(
+        || "not specified".to_owned(),
+        |threshold| match threshold.baseline.as_deref() {
+            Some(baseline) => format!(
+                "{} {} (baseline: {baseline})",
+                threshold.value, threshold.unit
+            ),
+            None => format!("{} {}", threshold.value, threshold.unit),
+        },
+    );
+
+    format!(
+        "{:?}: {}\n  affected: {}\n  metric: {}={} {}\n  threshold: {}\n  evidence: {}",
+        finding.finding_type,
+        finding.explanation,
+        if affected.is_empty() {
+            "none"
+        } else {
+            &affected
+        },
+        finding.metric.name,
+        finding.metric.value,
+        finding.metric.unit,
+        threshold,
+        if evidence.is_empty() {
+            "none"
+        } else {
+            &evidence
+        }
+    )
 }
