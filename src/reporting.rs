@@ -8,6 +8,7 @@ use std::{
     path::Path,
     time::Duration,
 };
+
 const MAX_RAW_EVENT_PREVIEW_CHARS: i64 = 250_000;
 
 #[derive(Serialize)]

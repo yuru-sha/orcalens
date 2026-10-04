@@ -197,11 +197,12 @@ orcalens dashboard
 
 The reporting commands accept `--json`, write one JSON object to stdout, and return errors on stderr with a nonzero exit code. `dashboard` prints a local URL and serves the UI until Ctrl-C. It requires an initialized database and does not apply migrations.
 
-`waste` returns `{command:"waste",data:{items:[...]}}` in JSON and accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses stored evidence. `runs` returns deterministic run records with explicit task links, nullable attribution/timestamps, normalized session/call links, and source-event evidence IDs. `skills` refreshes inventory and returns observed skill usage with Active, Dormant, NeverUsed, or Unknown status. `report` returns aggregate run, task, skill, call, stored finding, duration, and skill-status counts.
+`waste` returns `{command:"waste",data:{items:[...]}}` in JSON. Human output shows matching findings. It accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses stored evidence. `runs` returns deterministic run records with explicit task links, nullable attribution/timestamps, normalized session/call links, and source-event evidence IDs. `skills` refreshes inventory and returns observed skill usage with Active, Dormant, NeverUsed, or Unknown status. `report` returns aggregate run, task, skill, call, and stored finding counts.
 
 `ReportReader` exposes `ReportRequest -> ReportSnapshot` for paginated read-only queries, including normalized evidence. Evidence details return paged source-event metadata without raw payloads. A `SourceEvent` query returns a preview capped at 250,000 characters and includes the original byte count and hash; stored payloads remain unchanged.
 
 ## Dashboard
+The task/run dashboard is a follow-up stacked on this reporting/query API. It should use `ReportReader` and `ReportRequest -> ReportSnapshot`, not issue SQL against internal tables. Candidate views include overview counts, task/run/source-evidence drill-down, skill and tool usage, recorded agent/model attribution, and evidence-backed waste findings. Token usage, provider transcripts, and retry or review/fix-loop claims must remain absent until collected evidence supports them.
 
 `orcalens dashboard` binds to an ephemeral port on `127.0.0.1` and serves a local dashboard. It opens the existing schema-v4 database in SQLite read-only and query-only modes. It does not create a database, run migrations, scan Orca sources, or refresh skill inventory. Requests with an unexpected Host or Origin are rejected; the server accepts only GET requests and limits request headers.
 
