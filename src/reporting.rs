@@ -8,6 +8,7 @@ use std::{
     path::Path,
     time::Duration,
 };
+const MAX_RAW_EVENT_PREVIEW_CHARS: i64 = 250_000;
 
 #[derive(Serialize)]
 pub struct CommandOutput {
@@ -25,6 +26,7 @@ fn serialize_command<S: serde::Serializer>(
         Command::Runs => "runs",
         Command::Skills { .. } => "skills",
         Command::Waste { .. } => "waste",
+        Command::Dashboard => "dashboard",
         Command::Report => "report",
     })
 }
@@ -174,6 +176,8 @@ pub struct RawEventResult {
     pub source_timestamp: Option<String>,
     pub observed_at: String,
     pub payload_hash: String,
+    pub payload_bytes: i64,
+    pub payload_truncated: bool,
     pub payload: String,
 }
 
@@ -866,6 +870,7 @@ fn skill_rows(
     let cutoff = now
         .saturating_sub(u128::from(inactivity_days).saturating_mul(86_400_000))
         .min(i64::MAX as u128) as i64;
+    let now = now.min(i64::MAX as u128) as i64;
     let mut map = std::collections::BTreeMap::<String, SkillResult>::new();
     {
         let mut statement = connection.prepare(
@@ -916,10 +921,16 @@ fn skill_rows(
             "SELECT skill_name, COUNT(*), COUNT(DISTINCT run_id),
                     MAX(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' THEN CAST(started_at AS INTEGER) END),
                     SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' AND CAST(started_at AS INTEGER) >= ?1 THEN 1 ELSE 0 END)
+                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*'
+                                 AND CAST(started_at AS INTEGER) >= ?1
+                                 AND CAST(started_at AS INTEGER) <= ?2
+                             THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*'
+                                 AND CAST(started_at AS INTEGER) <= ?2
+                             THEN 1 ELSE 0 END)
              FROM skill_calls GROUP BY skill_name ORDER BY skill_name",
         )?;
-        for row in statement.query_map([cutoff], |row| {
+        for row in statement.query_map(params![cutoff, now], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
@@ -927,16 +938,17 @@ fn skill_rows(
                 row.get::<_, Option<i64>>(3)?,
                 row.get::<_, i64>(4)?,
                 row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
             ))
         })? {
-            let (name, calls, runs, last_used, valid, recent) = row?;
+            let (name, calls, runs, last_used, valid, recent, not_future) = row?;
             let entry = map.get_mut(&name).expect("skill call creates a map entry");
             entry.calls = calls;
             entry.runs = runs;
             entry.last_used = last_used.map(|timestamp| timestamp.to_string());
             entry.status = if recent > 0 {
                 SkillStatus::Active
-            } else if valid == calls {
+            } else if valid == calls && not_future == calls {
                 SkillStatus::Dormant
             } else {
                 SkillStatus::Unknown
@@ -997,9 +1009,27 @@ fn evidence_detail(
 
 fn raw_event(connection: &Connection, id: i64) -> Result<RawEventResult, Box<dyn Error>> {
     Ok(connection.query_row(
-        "SELECT e.id, s.source_type, s.source_path, e.source_identity, e.source_timestamp, e.observed_at, e.payload_hash, e.payload FROM raw_events e JOIN sources s ON s.id = e.source_id WHERE e.id = ?1",
-        [id],
-        |row| Ok(RawEventResult { id: row.get(0)?, source_type: row.get(1)?, source_path: row.get(2)?, source_identity: row.get(3)?, source_timestamp: row.get(4)?, observed_at: row.get(5)?, payload_hash: row.get(6)?, payload: row.get(7)? }),
+        "SELECT e.id, s.source_type, s.source_path, e.source_identity, e.source_timestamp,
+                e.observed_at, e.payload_hash, length(CAST(e.payload AS BLOB)),
+                substr(e.payload, 1, ?2)
+         FROM raw_events e JOIN sources s ON s.id = e.source_id WHERE e.id = ?1",
+        params![id, MAX_RAW_EVENT_PREVIEW_CHARS],
+        |row| {
+            let payload_bytes: i64 = row.get(7)?;
+            let payload: String = row.get(8)?;
+            Ok(RawEventResult {
+                id: row.get(0)?,
+                source_type: row.get(1)?,
+                source_path: row.get(2)?,
+                source_identity: row.get(3)?,
+                source_timestamp: row.get(4)?,
+                observed_at: row.get(5)?,
+                payload_hash: row.get(6)?,
+                payload_truncated: payload_bytes > payload.len() as i64,
+                payload_bytes,
+                payload,
+            })
+        },
     )?)
 }
 

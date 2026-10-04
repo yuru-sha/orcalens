@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/dashboard-icon.svg" type="image/svg+xml">
+  <title>Orcalens analytics</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Orcalens analytics home">orcalens <span>analytics</span></a>
+    <p>Local, read-only reporting from collected evidence</p>
+  </header>
+  <div class="layout">
+    <nav aria-label="Analytics sections">
+      <button type="button" data-view="summary" class="active">Overview</button>
+      <button type="button" data-view="tasks">Tasks</button>
+      <button type="button" data-view="runs">Runs</button>
+      <button type="button" data-view="skills">Skills</button>
+      <button type="button" data-view="tools">Tools</button>
+      <button type="button" data-view="agent_models">Agents &amp; models</button>
+      <button type="button" data-view="waste">Waste signals</button>
+    </nav>
+    <main>
+      <div id="status" role="status" aria-live="polite">Loading local analytics…</div>
+      <div id="content"></div>
+      <div id="pagination" class="pagination" hidden>
+        <button id="previous" type="button">Previous</button>
+        <span id="page-label"></span>
+        <button id="next" type="button">Next</button>
+      </div>
+      <p class="privacy-note">Dashboard requests bind to loopback only. Evidence is read from the local orcalens database and is not uploaded.</p>
+    </main>
+  </div>
+</body>
+</html>

@@ -84,17 +84,18 @@ Build and run the CLI with Cargo:
 cargo run -- --help
 cargo run -- scan
 cargo run -- runs --json
+cargo run -- dashboard
 ```
 
-The CLI provides `scan`, `runs`, `skills`, `waste`, and `report`. Each command accepts `--json` before or after the command and writes one JSON object to stdout. Errors go to stderr with a nonzero exit code.
+The CLI provides `scan`, `runs`, `skills`, `waste`, `report`, and `dashboard`. Reporting commands accept `--json` before or after the command and write one JSON object to stdout. Errors go to stderr with a nonzero exit code. `orcalens dashboard` prints a local URL and serves the dashboard until Ctrl-C.
 
-`orcalens skills` refreshes local installed-skill inventory and reports observed invocations, call/run counts, and last-use timestamps. `orcalens skills --unused` filters never-used or dormant skills with a 90-day default configurable by `--inactivity-days DAYS`. Never-used does not mean safe to delete. Provider transcripts outside Orca journals are not collected.
+`orcalens skills` refreshes the local installed-skill inventory and reports observed invocations, call/run counts, and last-use timestamps. `orcalens skills --unused` filters never-used or dormant skills with a 90-day default configurable by `--inactivity-days DAYS`. Never-used does not mean safe to delete. The dashboard reads the existing inventory without refreshing it. Provider transcripts outside Orca journals are not collected.
 
-The `reporting` module owns the shared typed query layer used by the CLI, including run/task summaries, skill usage/status, waste findings, and aggregate counts; CLI code does not query database tables. A dashboard follow-up must consume this report layer instead of issuing direct database queries.
+The `reporting` module owns the shared typed query layer used by the CLI and dashboard. The dashboard reads the existing schema-v4 database through a read-only connection and links overview counts to tasks, runs, and source-event evidence. It displays only collected agent/model attribution and supported waste findings. Token usage and provider transcripts are not inferred.
 
 ## Local database
 
-Each command opens the orcalens-owned SQLite database and applies pending migrations. The default path is `$HOME/.local/share/orcalens/orcalens.db`. Set `ORCALENS_DB` to use another file.
+Commands other than `dashboard` open the orcalens-owned SQLite database and apply pending migrations. The dashboard requires an existing schema-v4 database and does not create or migrate it, scan Orca sources, or refresh skill inventory. The default path is `$HOME/.local/share/orcalens/orcalens.db`. Set `ORCALENS_DB` to use another file.
 
 The migration ledger records each applied version. Reopening the database does not apply an already recorded migration again. On Unix, the analytics database file has owner-only read and write permissions because it stores raw conversation data. `scan` reads `agent-session-journal.db` from directories in `ORCA_STATE_DIRS` or `ORCA_STATE_DIR`, then checks `$HOME/.orca` and `$HOME/.local/share/orca`. It opens each journal read-only. The checkpoint tracks each session's published epoch and sequence.
 
@@ -102,7 +103,7 @@ Unsupported journal schema versions or missing required tables and columns stop 
 
 ## Scope
 
-Each Orca turn `itemId` becomes a Run; its explicit `userItemId`, when present and distinct from the turn ID, links a Task, and tool-call `turnScope` links calls to that Run. Later explicit request attribution updates the Run's Task link. Task/run/session identities are source-qualified to prevent unrelated journals with reused provider IDs from merging. The join table supports multiple Sessions per Run. Workspace IDs are opaque, not paths, so scan does not assign workspace or repository links. Missing explicit Task linkage remains null; no heuristic relationship confidence is fabricated. Provider transcripts are not collected. The dashboard is a planned follow-up and must use the shared reporting API.
+Each Orca turn `itemId` becomes a Run; its explicit `userItemId`, when present and distinct from the turn ID, links a Task, and tool-call `turnScope` links calls to that Run. Later explicit request attribution updates the Run's Task link. Task/run/session identities are source-qualified to prevent unrelated journals with reused provider IDs from merging. The join table supports multiple Sessions per Run. Workspace IDs are opaque, not paths, so scan does not assign workspace or repository links. Missing explicit Task linkage remains null; no heuristic relationship confidence is fabricated. Provider transcripts are not collected. The local dashboard reads normalized records and source events without writing to Orca or the analytics database.
 
 ## Waste signals
 
@@ -128,8 +129,8 @@ Initial implementation language: **Rust**
 
 Storage: **SQLite**
 
-The application is CLI-first. The task/run dashboard is a follow-up to the reporting/query API.
+The application is CLI-first and includes a local, read-only dashboard.
 
 ## Status
 
-The current implementation contains the CLI, the shared typed reporting/query API, migration-managed SQLite schema, a read-only Orca journal collector, normalized skill invocation detection, and deterministic evidence-based waste analyzers.
+The current implementation contains the CLI, local reporting dashboard, migration-managed SQLite schema, a read-only Orca journal collector, normalized skill invocation detection, and deterministic evidence-based waste analyzers.

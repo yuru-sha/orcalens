@@ -24,13 +24,13 @@
 
 ## Current implementation
 
-The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report`. `reporting` owns the shared typed query contract (`ReportRequest -> ReportSnapshot`), including task/run/source-event evidence links, skill status and aggregates, waste analyzer results, and stored counts. CLI report commands serialize JSON with `command` and `data` fields; CLI code does not query database tables. A dashboard follow-up must consume this layer rather than issue its own queries. `skills` retains its explicit filesystem inventory refresh.
+The Rust crate exposes `scan`, `runs`, `skills`, `waste`, `report`, and `dashboard`. `reporting` owns the shared typed query contract (`ReportRequest -> ReportSnapshot`), including task/run/source-event evidence links, skill status and aggregates, waste analyzer results, and stored counts. CLI report commands serialize JSON with `command` and `data` fields; CLI code does not query database tables. The dashboard uses the same query layer through a read-only SQLite connection; `skills` retains its explicit filesystem inventory refresh.
 
 `storage` opens the orcalens-owned database at `$HOME/.local/share/orcalens/orcalens.db`, or at the path in `ORCALENS_DB`. It enables SQLite foreign keys and applies embedded migrations in version order. `schema_migrations` records applied versions. Each migration and its ledger entry commit in one transaction.
 
 On Unix, `storage` restricts the analytics database file to owner read and write. Raw Orca conversation data must not be readable by other local users.
 
-`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` recognizes only the explicit tool execution event shape described below. Provider transcripts are not collected. The dashboard UI is not included in the reporting API prerequisite.
+`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` recognizes only the explicit tool execution event shape described below. Provider transcripts are not collected. The dashboard reads normalized local data without scanning or refreshing it.
 
 ## Core entities
 
@@ -192,13 +192,19 @@ orcalens runs
 orcalens skills
 orcalens waste
 orcalens report
+orcalens dashboard
 ```
 
-Every command accepts `--json`. It writes one JSON object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code.
+The reporting commands accept `--json`, write one JSON object to stdout, and return errors on stderr with a nonzero exit code. `dashboard` prints a local URL and serves the UI until Ctrl-C. It requires an initialized database and does not apply migrations.
 
-`waste` returns `{command:"waste",data:{items:[...]}}` in JSON. Human output shows matching findings. It accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses stored evidence. `runs` returns deterministic run records with explicit task links, nullable attribution/timestamps, normalized session/call links, and source-event evidence IDs. `skills` refreshes inventory and returns observed skill usage with Active, Dormant, NeverUsed, or Unknown status. `report` returns aggregate run, task, skill, call, and stored finding counts.
+`waste` returns `{command:"waste",data:{items:[...]}}` in JSON and accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses stored evidence. `runs` returns deterministic run records with explicit task links, nullable attribution/timestamps, normalized session/call links, and source-event evidence IDs. `skills` refreshes inventory and returns observed skill usage with Active, Dormant, NeverUsed, or Unknown status. `report` returns aggregate run, task, skill, call, stored finding, duration, and skill-status counts.
 
 ## Dashboard
-The task/run dashboard is a follow-up stacked on this reporting/query API. It should use `ReportReader` and `ReportRequest -> ReportSnapshot`, not issue SQL against internal tables. Candidate views include overview counts, task/run/source-evidence drill-down, skill and tool usage, recorded agent/model attribution, and evidence-backed waste findings. Token usage, provider transcripts, and retry or review/fix-loop claims must remain absent until collected evidence supports them.
 
-Waste reports compute deterministic findings from stored inventory and normalized records. Response pagination limits serialized results but does not bound analyzer work, which currently processes the full evidence set before paging.
+`orcalens dashboard` binds to an ephemeral port on `127.0.0.1` and serves a local dashboard. It opens the existing schema-v4 database in SQLite read-only and query-only modes. It does not create a database, run migrations, scan Orca sources, or refresh skill inventory. Requests with an unexpected Host or Origin are rejected; the server accepts only GET requests and limits request headers.
+
+The overview shows run/task/skill/call counts, stored versus computed findings, skill-state counts, and run-duration buckets. The tasks, runs, skills, tools, agent/model, and waste views use the shared `ReportRequest -> ReportSnapshot` interface. Lists return 100 records by default and API requests are capped at 500. Task detail links to runs; run details and waste findings link to normalized records and original raw source events. Raw payload previews load only from event detail and stop at 250,000 characters; the response also reports the original byte count and hash, and the stored event remains unchanged.
+
+Skill statuses use the current time and a 90-day default window. `active` means at least one valid observed call falls inside that window; `dormant` means all observed calls have valid timestamps outside it; `never_used` means an installed skill has no stored calls; `unknown` means timestamps cannot establish recency. Agent/model grouping uses only recorded run attribution. Token usage, provider transcript data, and retry or review/fix-loop claims are not shown without corresponding collected evidence.
+
+Waste analysis computes findings from the full stored evidence set before the API pages the response. Pagination limits response size, not analyzer work.

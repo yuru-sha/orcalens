@@ -13,7 +13,7 @@ fn help_lists_all_supported_commands() {
         .split_once("Commands:")
         .map(|(_, commands)| commands)
         .expect("help has a command section");
-    for command in ["scan", "runs", "skills", "waste", "report"] {
+    for command in ["scan", "runs", "skills", "waste", "report", "dashboard"] {
         assert!(
             commands
                 .lines()
@@ -21,6 +21,20 @@ fn help_lists_all_supported_commands() {
             "help should list {command}"
         );
     }
+}
+
+#[test]
+fn dashboard_requires_an_existing_database_without_creating_one() {
+    let home = tempfile::tempdir().expect("temporary home");
+    let database = home.path().join("orcalens.db");
+    let output = Command::new(env!("CARGO_BIN_EXE_orcalens"))
+        .arg("dashboard")
+        .env("HOME", home.path())
+        .env("ORCALENS_DB", &database)
+        .output()
+        .expect("run dashboard");
+    assert!(!output.status.success());
+    assert!(!database.exists());
 }
 
 #[test]

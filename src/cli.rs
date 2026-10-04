@@ -40,11 +40,16 @@ pub enum Command {
         #[arg(long, default_value_t = 2, value_name = "MULTIPLIER", value_parser = clap::value_parser!(u64).range(2..), help = "Report runs at least this multiple of their task's historical median duration (default: 2; 3 prior runs required)")]
         long_run_multiplier: u64,
     },
+    Dashboard,
     Report,
 }
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), Box<dyn Error>> {
     let arguments = Arguments::parse_from(args);
+    if matches!(arguments.command, Command::Dashboard) {
+        return crate::dashboard::serve();
+    }
+
     let mut connection = storage::open_default()?;
     let output = match arguments.command {
         Command::Scan => CommandOutput {
@@ -101,6 +106,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), Box<dyn Error
                 data: CommandData::Waste(reporting::WasteResult { items }),
             }
         }
+        Command::Dashboard => unreachable!("dashboard exits before opening the CLI database"),
         Command::Report => {
             let snapshot = reporting::query(&connection, &ReportRequest::new(ReportView::Summary))?;
             let result = match snapshot.view {
