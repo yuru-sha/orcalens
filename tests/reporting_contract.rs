@@ -104,7 +104,39 @@ fn task_run_evidence_and_tool_views_follow_recorded_links() {
             .collect::<Vec<_>>(),
         vec![12]
     );
-    assert_eq!(evidence.source_events[0].payload, "{\"kind\":\"tool\"}");
+    assert_eq!(evidence.source_events[0].payload_bytes, 15);
+    let reference = serde_json::to_value(&evidence.source_events[0]).unwrap();
+    assert!(reference.get("payload").is_none());
+
+    let mut evidence_request = ReportRequest::new(ReportView::Evidence(EvidenceTarget::Run(3)));
+    evidence_request.limit = 1;
+    evidence_request.offset = 1;
+    let evidence_page = reporting::query(&connection, &evidence_request).unwrap();
+    assert_eq!(evidence_page.metadata.total, 3);
+    assert_eq!(evidence_page.metadata.offset, 1);
+    let ReportData::Evidence(evidence_page) = evidence_page.view else {
+        panic!("evidence view")
+    };
+    assert_eq!(
+        evidence_page
+            .source_events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![12]
+    );
+
+    let raw_event = reporting::query(
+        &connection,
+        &ReportRequest::new(ReportView::SourceEvent(12)),
+    )
+    .unwrap();
+    let ReportData::SourceEvent(raw_event) = raw_event.view else {
+        panic!("source event view")
+    };
+    assert_eq!(raw_event.payload, "{\"kind\":\"tool\"}");
+    assert_eq!(raw_event.payload_bytes, 15);
+    assert!(!raw_event.payload_truncated);
 
     let tools = reporting::query(&connection, &ReportRequest::new(ReportView::Tools)).unwrap();
     let ReportData::Tools(tools) = tools.view else {
@@ -153,15 +185,16 @@ fn skills_keep_all_providers_and_classify_partial_timestamps_honestly() {
     let connection = database();
     connection
         .execute_batch(
-            "INSERT INTO runs(id) VALUES (1), (2), (3), (4), (5);
+            "INSERT INTO runs(id) VALUES (1), (2), (3), (4), (5), (6);
          INSERT INTO skill_inventory(skill_name, source, path) VALUES
             ('unused', 'claude', '/claude/unused'), ('unused', 'codex', '/codex/unused');
          INSERT INTO skill_calls(id, run_id, skill_name, source, started_at, dedup_key) VALUES
-            (1, 1, 'active', 'omp', '9999999999999', 'active-recent'),
+            (1, 1, 'active', 'omp', CAST(CAST(strftime('%s', 'now') AS INTEGER) * 1000 AS TEXT), 'active-recent'),
             (2, 2, 'active', 'claude', NULL, 'active-missing'),
             (3, 3, 'dormant', 'codex', '1', 'dormant-old'),
             (4, 4, 'unknown', 'omp', NULL, 'unknown-missing'),
-            (5, 5, 'unknown', 'claude', 'invalid', 'unknown-invalid');",
+            (5, 5, 'unknown', 'claude', 'invalid', 'unknown-invalid'),
+            (6, 6, 'future', 'fixture', '9999999999999', 'future');",
         )
         .unwrap();
 
@@ -187,6 +220,8 @@ fn skills_keep_all_providers_and_classify_partial_timestamps_honestly() {
     assert_eq!(status("unused").status, SkillStatus::NeverUsed);
     assert_eq!(status("unknown").status, SkillStatus::Unknown);
     assert!(!status("unknown").inactive);
+    assert_eq!(status("future").status, SkillStatus::Unknown);
+    assert!(!status("future").inactive);
     assert_eq!(status("unused").providers, vec!["claude", "codex"]);
 }
 
@@ -266,4 +301,31 @@ fn run_pages_keep_stable_id_order_and_report_the_unpaged_total() {
         runs.items.iter().map(|run| run.id).collect::<Vec<_>>(),
         vec![5]
     );
+}
+
+#[test]
+fn raw_source_event_payload_preview_is_bounded_and_marks_truncation() {
+    let connection = database();
+    connection
+        .execute(
+            "INSERT INTO sources(id, source_type, source_path, source_identity) VALUES (1, 'fixture', 'local', 'large-source')",
+            [],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO raw_events(id, source_id, source_identity, observed_at, payload, payload_hash)
+             VALUES (1, 1, 'large-event', 'observed', replace(printf('%300001s', 'x'), ' ', 'x'), 'hash')",
+            [],
+        )
+        .unwrap();
+
+    let snapshot =
+        reporting::query(&connection, &ReportRequest::new(ReportView::SourceEvent(1))).unwrap();
+    let ReportData::SourceEvent(event) = snapshot.view else {
+        panic!("source event view")
+    };
+    assert_eq!(event.payload_bytes, 300_001);
+    assert_eq!(event.payload.len(), 250_000);
+    assert!(event.payload_truncated);
 }
