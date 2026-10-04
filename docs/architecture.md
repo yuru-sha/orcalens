@@ -22,6 +22,14 @@
    - A run may use one or more sessions.
    - A session belongs to a provider runtime and can emit many tool/skill events.
 
+## Current implementation
+
+The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report` through a typed command enum. `reporting` owns the shared output contract. JSON output is an object with `command` and `data` fields. The list commands currently return empty `items` arrays. `scan` reports that no collectors are available. `report` reads row counts from the local database.
+
+`storage` opens the orcalens-owned database at `$HOME/.local/share/orcalens/orcalens.db`, or at the path in `ORCALENS_DB`. It enables SQLite foreign keys and applies embedded migrations in version order. `schema_migrations` records applied versions. Each migration and its ledger entry commit in one transaction.
+
+The `collectors`, `normalizers`, and `analyzers` modules are empty. They define no source readers, transformations, or findings yet. The CLI does not open Orca journal databases or provider transcripts. Future collectors must treat both as read-only. A dashboard is out of scope.
+
 ## Core entities
 
 ### Task
@@ -169,15 +177,15 @@ Indexes should favor:
 
 ## Incremental scanning
 
-`orcalens scan` should be idempotent.
+The current `scan` command has no collectors and imports no data. When collectors are added, each scan must be idempotent.
 
-Each source adapter should maintain a checkpoint based on the strongest stable cursor available, e.g.:
+Each source adapter should maintain a checkpoint based on the strongest stable cursor available, for example:
 
-- Orca journal: session + epoch + seq
-- JSONL transcript: file identity + byte offset or stable record identity
-- SQLite provider history: provider-specific primary key / timestamp cursor
+- Orca journal: session, epoch, and sequence number
+- JSONL transcript: file identity and byte offset or stable record identity
+- SQLite provider history: provider-specific primary key or timestamp cursor
 
-A changed/replaced source must be detected rather than silently continuing from an invalid cursor.
+A changed or replaced source must be detected rather than silently continuing from an invalid cursor.
 
 ## Analysis
 
@@ -216,19 +224,13 @@ orcalens waste
 orcalens report
 ```
 
-Machine-readable output should be supported from the beginning:
+Every command accepts `--json`. It writes one JSON object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code.
 
-```text
---json
-```
-
-This will make a later dashboard consume the same stable reporting API rather than reaching directly into internal tables.
+The current `runs`, `skills`, and `waste` commands return an empty `items` array. `report` returns the stored run, skill inventory, and finding counts. The shared output contract gives future consumers the same result shape as the CLI.
 
 ## Dashboard
 
-Not part of the first milestone.
-
-When added, it should consume the same query/report layer as the CLI and focus on:
+A dashboard is out of scope for this milestone. If added later, it should consume the same query/report layer as the CLI rather than querying internal tables directly. Candidate views include:
 
 - overview
 - task/run drill-down
