@@ -24,11 +24,13 @@
 
 ## Current implementation
 
-The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report` through a typed command enum. `reporting` owns the shared output contract. JSON output is an object with `command` and `data` fields. The list commands currently return empty `items` arrays. `scan` reports that no collectors are available. `report` reads row counts from the local database.
+The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report` through a typed command enum. `reporting` owns the shared output contract. JSON output is an object with `command` and `data` fields. The list commands return empty `items` arrays. `scan` imports new Orca journal rows into `raw_events`. `report` reads row counts from the local database.
 
 `storage` opens the orcalens-owned database at `$HOME/.local/share/orcalens/orcalens.db`, or at the path in `ORCALENS_DB`. It enables SQLite foreign keys and applies embedded migrations in version order. `schema_migrations` records applied versions. Each migration and its ledger entry commit in one transaction.
 
-The `collectors`, `normalizers`, and `analyzers` modules are empty. They define no source readers, transformations, or findings yet. The CLI does not open Orca journal databases or provider transcripts. Future collectors must treat both as read-only. A dashboard is out of scope.
+On Unix, `storage` restricts the analytics database file to owner read and write. Raw Orca conversation data must not be readable by other local users.
+
+`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` and `analyzers` remain empty. Provider transcripts are not collected. A dashboard is out of scope.
 
 ## Core entities
 
@@ -110,18 +112,11 @@ Suggested fields:
 
 ## Orca journal adapter
 
-Current Orca source inspection shows a host-level SQLite file named:
+Orca stores its host-level journal in `agent-session-journal.db`. The collector searches directories from `ORCA_STATE_DIRS` and `ORCA_STATE_DIR`, followed by `$HOME/.orca` and `$HOME/.local/share/orca`.
 
-`agent-session-journal.db`
+The current published database schema uses `PRAGMA user_version` 3 or 4. The collector requires `journal_sessions(session_id, epoch)` and `journal_rows(session_id, epoch, seq, ts, row_json)`. Epochs are text identifiers. Timestamps are integer milliseconds. `journal_sessions.epoch` identifies the published epoch, and rows from other epochs are ignored.
 
-Important tables:
-
-- `journal_sessions(session_id, workspace_id, epoch, ...)`
-- `journal_rows(session_id, epoch, seq, ts, row_json)`
-
-Rows are append-oriented and contain structured JSON. orcalens should read the current published epoch for each session and process rows in sequence order.
-
-Do not couple analytics directly to a specific Orca journal schema version. The adapter should expose a stable internal event stream and report unsupported/newer schemas clearly.
+The adapter opens the database read-only, validates the schema before writing destination state, and imports row JSON unchanged into `raw_events`. The checkpoint stores the last sequence for each session and epoch. A changed epoch starts a new cursor while preserving earlier raw events. Unsupported schema versions and missing required fields fail with a diagnostic.
 
 ## Skill invocation detection
 

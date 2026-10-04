@@ -88,17 +88,19 @@ cargo run -- runs --json
 
 The CLI provides `scan`, `runs`, `skills`, `waste`, and `report`. Each command accepts `--json` before or after the command.
 
-JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` reports zero scanned sources and imported events because no collectors exist yet. `runs`, `skills`, and `waste` return an empty `items` array. `report` returns counts from the orcalens database.
+JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` reads discovered Orca journals and imports new rows into `raw_events`. `runs`, `skills`, and `waste` return an empty `items` array. `report` returns counts from the orcalens database.
 
 ## Local database
 
 Each command opens the orcalens-owned SQLite database and applies pending migrations before it runs. The default path is `$HOME/.local/share/orcalens/orcalens.db`. Set `ORCALENS_DB` to use another file.
 
-The migration ledger records each applied version. Reopening the database does not apply an already recorded migration again. The CLI does not open Orca databases or provider transcripts. Future collectors must treat both as read-only.
+The migration ledger records each applied version. Reopening the database does not apply an already recorded migration again. On Unix, the analytics database file has owner-only read and write permissions because it stores raw conversation data. `scan` reads `agent-session-journal.db` from directories in `ORCA_STATE_DIRS` or `ORCA_STATE_DIR`, then checks `$HOME/.orca` and `$HOME/.local/share/orca`. It opens each journal read-only. The checkpoint tracks each session's published epoch and sequence.
+
+Unsupported journal schema versions or missing required tables and columns stop the scan with a diagnostic. The collector preserves each row's JSON payload in `raw_events`; it does not run Orca's reducer. Provider transcripts remain uncollected.
 
 ## Scope
 
-The current change establishes the CLI and local storage only. It does not collect or analyze Orca data. The dashboard is out of scope.
+The collector imports Orca journal rows as raw events. It does not analyze them or populate runs, skills, or findings. The dashboard is out of scope.
 
 ## Waste signals
 
@@ -125,4 +127,4 @@ The application is CLI-first. A dashboard is out of scope.
 
 ## Status
 
-The current implementation contains the CLI, migration-managed SQLite schema, and empty collector, normalizer, and analyzer modules.
+The current implementation contains the CLI, migration-managed SQLite schema, and a read-only Orca journal collector. Normalizers and analyzers remain empty.
