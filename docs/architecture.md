@@ -24,13 +24,13 @@
 
 ## Current implementation
 
-The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report` through a typed command enum. `reporting` owns the shared output contract. JSON output is an object with `command` and `data` fields. The list commands return empty `items` arrays. `scan` stores Orca journal rows unchanged in `raw_events`, then normalizes recognized tool execution events into `sessions` and `tool_calls`. `report` reads row counts from the local database.
+The Rust crate exposes `scan`, `runs`, `skills`, `waste`, and `report`. `reporting` owns the shared typed query contract (`ReportRequest -> ReportSnapshot`), including task/run/source-event evidence links, skill status and aggregates, waste analyzer results, and stored counts. CLI report commands serialize JSON with `command` and `data` fields; CLI code does not query database tables. A dashboard follow-up must consume this layer rather than issue its own queries. `skills` retains its explicit filesystem inventory refresh.
 
 `storage` opens the orcalens-owned database at `$HOME/.local/share/orcalens/orcalens.db`, or at the path in `ORCALENS_DB`. It enables SQLite foreign keys and applies embedded migrations in version order. `schema_migrations` records applied versions. Each migration and its ledger entry commit in one transaction.
 
 On Unix, `storage` restricts the analytics database file to owner read and write. Raw Orca conversation data must not be readable by other local users.
 
-`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` recognizes only the explicit tool execution event shape described below. Provider transcripts are not collected. A dashboard is out of scope.
+`collectors` discovers and reads Orca journals without invoking Orca's reducer. `normalizers` recognizes only the explicit tool execution event shape described below. Provider transcripts are not collected. The dashboard UI is not included in the reporting API prerequisite.
 
 ## Core entities
 
@@ -196,15 +196,9 @@ orcalens report
 
 Every command accepts `--json`. It writes one JSON object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code.
 
-`waste` returns `{command:"waste",data:{items:[...]}}` in JSON. Human output shows each finding's explanation, affected entity, metric, threshold, baseline, and evidence IDs and timestamps. It prints a clear message when no findings match. `waste` accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses only stored evidence. `runs` still returns an empty `items` array. `skills` refreshes inventory and returns observed skill usage. `report` returns stored run, skill inventory, and finding counts.
+`waste` returns `{command:"waste",data:{items:[...]}}` in JSON. Human output shows matching findings. It accepts `--inactivity-days DAYS`, `--repeat-count COUNT`, and `--long-run-multiplier MULTIPLIER`. Analysis uses stored evidence. `runs` returns deterministic run records with explicit task links, nullable attribution/timestamps, normalized session/call links, and source-event evidence IDs. `skills` refreshes inventory and returns observed skill usage with Active, Dormant, NeverUsed, or Unknown status. `report` returns aggregate run, task, skill, call, and stored finding counts.
 
 ## Dashboard
+The task/run dashboard is a follow-up stacked on this reporting/query API. It should use `ReportReader` and `ReportRequest -> ReportSnapshot`, not issue SQL against internal tables. Candidate views include overview counts, task/run/source-evidence drill-down, skill and tool usage, recorded agent/model attribution, and evidence-backed waste findings. Token usage, provider transcripts, and retry or review/fix-loop claims must remain absent until collected evidence supports them.
 
-A dashboard is out of scope for this milestone. If added later, it should consume the same query/report layer as the CLI rather than querying internal tables directly. Candidate views include:
-
-- overview
-- task/run drill-down
-- skills usage matrix
-- agent x skill heatmap
-- waste findings
-- time/token trends
+Waste reports compute deterministic findings from stored inventory and normalized records. Response pagination limits serialized results but does not bound analyzer work, which currently processes the full evidence set before paging.

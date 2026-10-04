@@ -70,6 +70,50 @@ fn skills_lists_installed_skills_and_unused_filter() {
 }
 
 #[test]
+fn runs_cli_returns_populated_typed_items() {
+    let home = tempfile::tempdir().expect("temporary home");
+    let database = home.path().join("orcalens.db");
+    let initialized = Command::new(env!("CARGO_BIN_EXE_orcalens"))
+        .args(["runs", "--json"])
+        .env("HOME", home.path())
+        .env("ORCALENS_DB", &database)
+        .output()
+        .expect("initialize database");
+    assert!(initialized.status.success(), "{:?}", initialized.stderr);
+
+    let connection = rusqlite::Connection::open(&database).expect("open fixture database");
+    connection
+        .execute(
+            "INSERT INTO tasks(id, source, source_key, title) VALUES (7, 'fixture', 'task-7', 'Populated task')",
+            [],
+        )
+        .expect("insert task");
+    connection
+        .execute(
+            "INSERT INTO runs(id, task_id, started_at, ended_at, outcome) VALUES (12, 7, '1000', '3000', 'completed')",
+            [],
+        )
+        .expect("insert run");
+    drop(connection);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_orcalens"))
+        .args(["runs", "--json"])
+        .env("HOME", home.path())
+        .env("ORCALENS_DB", &database)
+        .output()
+        .expect("run runs");
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let value: Value = serde_json::from_slice(&output.stdout).expect("JSON output");
+    let items = value["data"]["items"].as_array().expect("run items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], 12);
+    assert_eq!(items[0]["task_id"], 7);
+    assert_eq!(items[0]["task_title"], "Populated task");
+    assert_eq!(items[0]["duration_ms"], 2000);
+    assert_eq!(items[0]["outcome"], "completed");
+}
+
+#[test]
 fn scan_imports_orca_structured_tool_calls_once_through_the_cli() {
     let home = tempfile::tempdir().expect("temporary home");
     let state = home.path().join("orca");
