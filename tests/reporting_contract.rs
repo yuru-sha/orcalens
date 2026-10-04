@@ -219,8 +219,8 @@ fn skills_keep_all_providers_and_classify_partial_timestamps_honestly() {
     assert!(status("dormant").inactive);
     assert_eq!(status("unused").status, SkillStatus::NeverUsed);
     assert_eq!(status("unknown").status, SkillStatus::Unknown);
-    assert!(!status("unknown").inactive);
     assert_eq!(status("future").status, SkillStatus::Unknown);
+    assert!(!status("unknown").inactive);
     assert!(!status("future").inactive);
     assert_eq!(status("unused").providers, vec!["claude", "codex"]);
 }

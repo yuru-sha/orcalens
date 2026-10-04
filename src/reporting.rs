@@ -27,6 +27,7 @@ fn serialize_command<S: serde::Serializer>(
         Command::Runs => "runs",
         Command::Skills { .. } => "skills",
         Command::Waste { .. } => "waste",
+        Command::Dashboard => "dashboard",
         Command::Report => "report",
     })
 }
@@ -879,10 +880,10 @@ fn skill_rows(
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis();
-    let now_timestamp = now.min(i64::MAX as u128) as i64;
     let cutoff = now
         .saturating_sub(u128::from(inactivity_days).saturating_mul(86_400_000))
         .min(i64::MAX as u128) as i64;
+    let now = now.min(i64::MAX as u128) as i64;
     let mut map = std::collections::BTreeMap::<String, SkillResult>::new();
     {
         let mut statement = connection.prepare(
@@ -933,11 +934,16 @@ fn skill_rows(
             "SELECT skill_name, COUNT(*), COUNT(DISTINCT run_id),
                     MAX(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' THEN CAST(started_at AS INTEGER) END),
                     SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' AND CAST(started_at AS INTEGER) >= ?1 AND CAST(started_at AS INTEGER) <= ?2 THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*' AND CAST(started_at AS INTEGER) <= ?2 THEN 1 ELSE 0 END)
+                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*'
+                                 AND CAST(started_at AS INTEGER) >= ?1
+                                 AND CAST(started_at AS INTEGER) <= ?2
+                             THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN started_at <> '' AND started_at NOT GLOB '*[^0-9]*'
+                                 AND CAST(started_at AS INTEGER) <= ?2
+                             THEN 1 ELSE 0 END)
              FROM skill_calls GROUP BY skill_name ORDER BY skill_name",
         )?;
-        for row in statement.query_map(params![cutoff, now_timestamp], |row| {
+        for row in statement.query_map(params![cutoff, now], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
