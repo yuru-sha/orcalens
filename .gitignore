@@ -1,0 +1,39 @@
+# Cargo build output
+/target/
+
+# Local skill evidence output
+artifacts/
+
+# Local analysis stores and databases
+*.db
+*.db-*
+.codexlens/
+.codexlens.sqlite
+.codexlens.sqlite-*
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python helper cache
+__pycache__/
+
+# OS / editor / temporary files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+tmp/
+temp/
+
+# Machine-local agent links; keep the project-owned verification skill versioned.
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/verify-*/
+.omp/
+.pstack/
