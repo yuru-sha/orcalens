@@ -244,8 +244,9 @@ fn detect_for(provider: &str, body: &serde_json::Value) -> Option<String> {
             .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
             .collect::<Vec<_>>()
             .join("\n");
-        if text.trim_start().starts_with("<command-name>") {
-            let value = text
+        let trimmed = text.trim_start();
+        if trimmed.starts_with("<command-name>") || trimmed.starts_with("<command-message>") {
+            let value = trimmed
                 .split_once("<command-name>")?
                 .1
                 .split_once("</command-name>")?
@@ -316,11 +317,11 @@ mod tests {
             ),
             (
                 "session:epoch:2",
-                serde_json::json!({"kind":"item","epoch":"epoch","seq":2,"itemId":"item-a","body":{"kind":"message","role":"user","blocks":[{"type":"text","text":"<command-name>/plugin:review</command-name>"}]}}),
+                serde_json::json!({"kind":"item","epoch":"epoch","seq":2,"itemId":"item-a","body":{"kind":"message","role":"user","blocks":[{"type":"text","text":"<command-name>/compound-engineering:ce-brainstorm</command-name>\n<command-args>improve the picker</command-args>"}]}}),
             ),
             (
                 "session:epoch:3",
-                serde_json::json!({"kind":"item","epoch":"epoch","seq":3,"itemId":"item-a","body":{"kind":"message","role":"user","blocks":[{"type":"text","text":"<command-name>/plugin:review</command-name>"}]}}),
+                serde_json::json!({"kind":"item","epoch":"epoch","seq":3,"itemId":"item-a","body":{"kind":"message","role":"user","blocks":[{"type":"text","text":"<command-message>compound-engineering:ce-brainstorm</command-message>\n<command-name>/compound-engineering:ce-brainstorm</command-name>\n<command-args>improve the picker</command-args>"}]}}),
             ),
         ];
         for (identity, payload) in inserts {
@@ -330,7 +331,7 @@ mod tests {
         detect_events(&tx).expect("detect invocations");
         let count: i64 = tx
             .query_row(
-                "SELECT COUNT(*) FROM skill_calls WHERE skill_name='review'",
+                "SELECT COUNT(*) FROM skill_calls WHERE skill_name='ce-brainstorm'",
                 [],
                 |r| r.get(0),
             )
