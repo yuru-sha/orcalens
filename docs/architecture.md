@@ -124,27 +124,9 @@ Each Orca `turn` item creates or updates one normalized Run keyed by the source-
 
 ## Skill invocation detection
 
-Skill detection must be adapter-based because providers can represent skill invocation differently.
+Skill parsing is isolated behind the provider-neutral `SkillInvocationDetector` interface. Initial adapters recognize surfaced `<command-name>/plugin:skill-name</command-name>` envelopes and the provider-specific Claude `Skill`, OpenCode `skill`, and OMP skill tools. Detection runs against imported Orca journal item rows and lifecycle mutations; external provider transcript collectors are not yet implemented.
 
-Observed Orca native-chat tests include surfaced skill envelopes such as:
-
-`<command-name>/plugin:skill-name</command-name>`
-
-This is enough to justify an MVP detector, but it must not be treated as the only possible representation.
-
-Proposed interface:
-
-```text
-SkillInvocationDetector
-  detect(event/transcript item) -> zero or more SkillInvocation
-```
-
-Initial implementations:
-
-- CodexSkillDetector
-- OmpSkillDetector
-- ClaudeSkillDetector
-- OpenCodeSkillDetector
+`skill_inventory` is a refreshable snapshot of installed skills found in the supported user skill roots. `skill_calls` stores deduplicated calls with source-event provenance and nullable run/session links. Duplicate revisions of an item use a stable session/epoch/item/name key. The CLI exposes installed and observed skills independently, with call/run counts, last-used timestamp, and a configurable inactivity window. Never-used is not a deletion recommendation.
 
 ## Storage
 

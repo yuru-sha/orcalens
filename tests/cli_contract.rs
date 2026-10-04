@@ -44,6 +44,32 @@ fn each_command_emits_the_shared_json_envelope() {
 }
 
 #[test]
+fn skills_lists_installed_skills_and_unused_filter() {
+    let home = tempfile::tempdir().expect("temporary home");
+    let skill = home.path().join(".agents/skills/review");
+    std::fs::create_dir_all(&skill).expect("create skill directory");
+    std::fs::write(
+        skill.join("SKILL.md"),
+        "---\nname: code-review\ndescription: review code\n---\n",
+    )
+    .expect("write skill");
+    let database = home.path().join("orcalens.db");
+    let output = Command::new(env!("CARGO_BIN_EXE_orcalens"))
+        .args(["skills", "--unused", "--json"])
+        .env("HOME", home.path())
+        .env("ORCALENS_DB", &database)
+        .output()
+        .expect("run skills");
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let value: Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
+    assert_eq!(value["command"], "skills");
+    assert_eq!(value["data"]["items"][0]["name"], "code-review");
+    assert_eq!(value["data"]["items"][0]["installed"], true);
+    assert_eq!(value["data"]["items"][0]["calls"], 0);
+    assert_eq!(value["data"]["items"][0]["inactive"], true);
+}
+
+#[test]
 fn scan_imports_orca_structured_tool_calls_once_through_the_cli() {
     let home = tempfile::tempdir().expect("temporary home");
     let state = home.path().join("orca");

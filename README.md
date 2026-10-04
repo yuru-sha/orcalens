@@ -86,9 +86,9 @@ cargo run -- scan
 cargo run -- runs --json
 ```
 
-The CLI provides `scan`, `runs`, `skills`, `waste`, and `report`. Each command accepts `--json` before or after the command.
+The CLI provides `scan`, `runs`, `skills`, `waste`, and `report`. Each command accepts `--json` before or after the command. `orcalens skills` lists installed skills and observed invocations, including call/run counts and last-use timestamps; `orcalens skills --unused` filters never-used or inactive skills, with a 90-day default configurable by `--inactivity-days DAYS`. Never-used does not mean safe to delete.
 
-JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` imports new Orca journal rows into `raw_events` and normalizes recognized tool execution events into `sessions` and `tool_calls`. `runs`, `skills`, and `waste` return an empty `items` array. `report` returns counts from the orcalens database.
+JSON writes one object to stdout with a `command` field and a `data` object. Errors go to stderr and return a nonzero exit code. `scan` imports Orca journal rows and normalizes structured tool calls. The skills query refreshes local installed-skill inventory and detects surfaced invocation envelopes and provider Skill tool calls in imported Orca journal events. Provider transcripts outside Orca journals are not collected.
 
 ## Local database
 
