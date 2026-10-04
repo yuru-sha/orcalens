@@ -196,46 +196,30 @@ fn normalize_persisted_source_events(
         rows
     };
     for (raw_event_id, identity, source_timestamp, payload) in events {
-        let row: serde_json::Value = match serde_json::from_str(&payload) {
-            Ok(row) => row,
-            Err(_) => continue,
+        let Ok(row) = serde_json::from_str::<serde_json::Value>(&payload) else {
+            continue;
         };
-        let identity_sequence = identity
-            .rsplit_once(':')
-            .and_then(|(_, sequence)| sequence.parse::<i64>().ok());
-        let Some(sequence) = row
-            .get("seq")
-            .and_then(serde_json::Value::as_i64)
-            .or(identity_sequence)
+        let (Some(epoch), Some(sequence)) = (
+            row.get("epoch").and_then(serde_json::Value::as_str),
+            row.get("seq").and_then(serde_json::Value::as_i64),
+        ) else {
+            continue;
+        };
+        let Some(session_id) = identity.strip_suffix(&format!(":{epoch}:{sequence}")) else {
+            continue;
+        };
+        let Some(timestamp) = source_timestamp
+            .as_deref()
+            .and_then(|value| value.parse::<i64>().ok())
         else {
             continue;
         };
-        let Some(identity_without_sequence) = identity.strip_suffix(&format!(":{sequence}")) else {
-            continue;
-        };
-        let payload_epoch = row.get("epoch").and_then(serde_json::Value::as_str);
-        let (session_id, epoch) = if let Some(epoch) = payload_epoch {
-            match identity_without_sequence.strip_suffix(&format!(":{epoch}")) {
-                Some(session_id) => (session_id.to_owned(), epoch.to_owned()),
-                None => continue,
-            }
-        } else {
-            match identity_without_sequence.rsplit_once(':') {
-                Some((session_id, epoch)) => (session_id.to_owned(), epoch.to_owned()),
-                None => continue,
-            }
-        };
-        let timestamp = source_timestamp
-            .as_deref()
-            .and_then(|value| value.parse::<i64>().ok())
-            .or_else(|| row.get("ts").and_then(serde_json::Value::as_i64))
-            .unwrap_or_default();
         crate::normalizers::normalize_journal_row(
             transaction,
             crate::normalizers::JournalSourceRow {
                 source_id,
-                provider_session_id: &session_id,
-                epoch: &epoch,
+                provider_session_id: session_id,
+                epoch,
                 sequence,
                 timestamp,
                 raw_event_id,
