@@ -28,7 +28,6 @@ cargo build
 cargo test
 cargo fmt --check
 cargo clippy --all-targets
-
 ```
 
 CLI commands: `scan`, `runs`, `skills`, `waste`, `report`, `dashboard`. Reporting commands support `--json`; JSON is emitted to stdout and errors to stderr with a nonzero exit code. `dashboard` serves until Ctrl-C and requires an existing schema-v4 database; it does not migrate or scan sources. Other commands open the writable analytics DB and apply pending migrations.
