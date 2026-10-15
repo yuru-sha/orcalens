@@ -34,6 +34,12 @@ CLI commands: `scan`, `runs`, `skills`, `waste`, `report`, `dashboard`. Reportin
 
 ## Code Conventions & Common Patterns
 
+### Code, Tests, Commits, and Comments
+
+- Code should make how the behavior is implemented clear.
+- Tests should make what behavior is expected clear.
+- Commit messages should explain why the change is needed.
+- Comments should explain why not an apparently reasonable alternative was chosen, including relevant constraints or non-obvious intent. Do not use comments to paraphrase the code's behavior.
 - Propagate fallible operations with `Result` and `?` rather than swallowing errors; for example, `src/cli.rs` returns `Result<(), Box<dyn Error>>` and propagates storage and reporting failures with `?`.
 - Use typed request/result structures and explicit evidence references rather than passing unstructured query state through the CLI or dashboard.
 - Make scans idempotent and transactional; preserve original raw event payloads and normalize only recognized event shapes.
